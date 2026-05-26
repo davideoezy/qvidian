@@ -5,9 +5,9 @@ services:
     env_file:
       - ./qvidian-shim/.env
     environment:
-      - PORT=${QVIDIAN_SHIM_PORT:-3010}
+      - PORT=${SHIM_PORT:-3010}
     ports:
-      - "${QVIDIAN_SHIM_PORT:-3010}:${QVIDIAN_SHIM_PORT:-3010}"
+      - "${SHIM_PORT:-3010}:${SHIM_PORT:-3010}"
     networks: [appnet]
     command: ["node", "/app/src/index.js"]
       
@@ -17,12 +17,12 @@ services:
     depends_on:
       - qvidian-shim
     environment:
-      - PORT=${QVIDIAN_MCP_PORT:-3020}
-      - QVIDIAN_SHIM_BASE=http://qvidian-shim:${QVIDIAN_SHIM_PORT:-3010}
-      - QVIDIAN_BASE_URL=${QVIDIAN_BASE_URL}     # <—
+      - PORT=${MCP_PORT:-3020}
+      - QVIDIAN_SHIM_BASE=http://qvidian-shim:${SHIM_PORT:-3010}
+      - QVIDIAN_BASE_URL=${QVIDIAN_BASE_URL}
       - QVIDIAN_API_KEY=${QVIDIAN_API_KEY}
     ports:
-      - "${QVIDIAN_MCP_PORT:-3020}:${QVIDIAN_MCP_PORT:-3020}"
+      - "${MCP_PORT:-3020}:${MCP_PORT:-3020}"
     networks: [appnet]
     command: ["node", "/app/src/server.js"] 
 
