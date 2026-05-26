@@ -278,8 +278,15 @@ function getSession(sessionId) {
 async function callJsonWebMethodWithSession(sessionId, serviceName, methodName, payload) {
   const session = getSession(sessionId);
   const url = buildWebServicesUrl(session.baseUrl, serviceName, methodName);
-  const headers = { 'Content-Type': 'application/json; charset=UTF-8' };
+  const headers = {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': new URL(session.baseUrl).origin,
+    'Referer': `${session.baseUrl}/`
+  };
   if (session.cookie) headers.Cookie = session.cookie;
+  if (session.userAgent) headers['User-Agent'] = session.userAgent;
+  if (session.customHeaders) Object.assign(headers, session.customHeaders);
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload || {}), redirect: 'manual' });
   const setCookie = response.headers.get('set-cookie');
   if (setCookie) {
@@ -468,7 +475,12 @@ app.post("/session/import", async (req, res) => {
     if (!cookieHeader) return res.status(400).json({ error: "Missing cookie or cookies" });
 
     const sessionId = createSessionId();
-    sessionStore.set(sessionId, { baseUrl: normalizeBaseUrl(baseUrl), cookie: cookieHeader });
+    sessionStore.set(sessionId, {
+      baseUrl: normalizeBaseUrl(baseUrl),
+      cookie: cookieHeader,
+      customHeaders: req.body.headers || {},
+      userAgent: req.body.userAgent
+    });
 
     let validation = null;
     try {

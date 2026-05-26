@@ -28,6 +28,32 @@ try {
   const [page] = await browser.pages();
   page.setDefaultNavigationTimeout(timeoutMs);
 
+  const CAPTURED_HEADER_NAMES = [
+    "qvidianauthenticationshadow",
+    "x-request-verification-token",
+    "qpapageinstanceid"
+  ];
+  const CANONICAL = {
+    "qvidianauthenticationshadow": "QvidianAuthenticationShadow",
+    "x-request-verification-token": "x-request-verification-token",
+    "qpapageinstanceid": "qpaPageInstanceID"
+  };
+
+  let capturedHeaders = null;
+  let capturedUserAgent = null;
+  page.on("request", (req) => {
+    if (capturedHeaders) return;
+    if (req.method() !== "POST") return;
+    if (!/\/WebServices\/.+\.asmx\//i.test(req.url())) return;
+    const h = req.headers();
+    const present = CAPTURED_HEADER_NAMES.filter((k) => h[k]);
+    if (present.length === 0) return;
+    capturedHeaders = {};
+    for (const k of present) capturedHeaders[CANONICAL[k]] = h[k];
+    capturedUserAgent = h["user-agent"];
+    console.log(`[sso-login] Captured ${present.length} auth header(s) from ${req.url().split("/").slice(-2).join("/")}`);
+  });
+
   console.log(`[sso-login] Opening ${startUrl}`);
   console.log(`[sso-login] Profile dir: ${profileDir}`);
   console.log(`[sso-login] If this is your first run (or cookies expired), complete the Microsoft sign-in in the browser window.`);
@@ -36,8 +62,14 @@ try {
   const tenantHost = await waitForTenantLanding(page, timeoutMs);
   console.log(`[sso-login] Landed on tenant: ${tenantHost}`);
 
-  // Give the page a moment to finalize any in-flight cookie writes.
-  await new Promise((r) => setTimeout(r, 1500));
+  // Wait for the page's first WebServices POST to fire so we can capture its headers.
+  const headerDeadline = Date.now() + 15000;
+  while (!capturedHeaders && Date.now() < headerDeadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  if (!capturedHeaders) {
+    console.warn(`[sso-login] No /WebServices/ POST observed within 15s — proceeding without custom headers.`);
+  }
 
   const cookies = await page.cookies(`https://${tenantHost}/`);
   const tenantCookies = cookies.filter((c) => c.domain.endsWith("qvidian.com"));
@@ -49,13 +81,15 @@ try {
   const tenantBaseUrl = baseUrlOverride || (await derivedBaseUrl(page, tenantHost));
   console.log(`[sso-login] Using baseUrl: ${tenantBaseUrl}`);
 
-  console.log(`[sso-login] Posting cookies to ${shimUrl}/session/import`);
+  console.log(`[sso-login] Posting cookies + headers to ${shimUrl}/session/import`);
   const response = await fetch(`${shimUrl}/session/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       baseUrl: tenantBaseUrl,
-      cookies: tenantCookies.map((c) => ({ name: c.name, value: c.value }))
+      cookies: tenantCookies.map((c) => ({ name: c.name, value: c.value })),
+      headers: capturedHeaders || {},
+      userAgent: capturedUserAgent
     })
   });
   const result = await response.json();
