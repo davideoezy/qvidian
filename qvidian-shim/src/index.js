@@ -495,6 +495,46 @@ app.post("/session/import", async (req, res) => {
   }
 });
 
+app.post("/session/raw", async (req, res) => {
+  try {
+    const session = getSession(req.body.sessionId);
+    let url;
+    if (req.body.url) {
+      url = req.body.url;
+    } else if (req.body.path) {
+      url = `${session.baseUrl}${req.body.path.startsWith("/") ? "" : "/"}${req.body.path}`;
+    } else {
+      return res.status(400).json({ error: "Missing path or url" });
+    }
+    const method = (req.body.method || "POST").toUpperCase();
+    const headers = {
+      "Content-Type": "application/json; charset=UTF-8",
+      "Accept": "application/json, text/plain, */*",
+      "Origin": new URL(session.baseUrl).origin,
+      "Referer": `${session.baseUrl}/`
+    };
+    if (session.cookie) headers.Cookie = session.cookie;
+    if (session.userAgent) headers["User-Agent"] = session.userAgent;
+    if (session.customHeaders) Object.assign(headers, session.customHeaders);
+
+    const body = method === "GET" ? undefined : JSON.stringify(req.body.body ?? {});
+    const response = await fetch(url, { method, headers, body, redirect: "manual" });
+    const setCookie = response.headers.get("set-cookie");
+    if (setCookie) session.cookie = mergeCookieStrings(session.cookie, setCookie);
+    const text = await response.text();
+    let data = text;
+    try { data = JSON.parse(text); } catch {}
+    res.status(response.status).json({
+      ok: response.ok,
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      data
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/session/call", async (req, res) => {
   try {
     const sessionId = req.body.sessionId;

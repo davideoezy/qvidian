@@ -39,19 +39,54 @@ try {
     "qpapageinstanceid": "qpaPageInstanceID"
   };
 
-  let capturedHeaders = null;
+  const capturedHeaders = {};
   let capturedUserAgent = null;
-  page.on("request", (req) => {
-    if (capturedHeaders) return;
-    if (req.method() !== "POST") return;
-    if (!/\/WebServices\/.+\.asmx\//i.test(req.url())) return;
-    const h = req.headers();
-    const present = CAPTURED_HEADER_NAMES.filter((k) => h[k]);
-    if (present.length === 0) return;
-    capturedHeaders = {};
-    for (const k of present) capturedHeaders[CANONICAL[k]] = h[k];
-    capturedUserAgent = h["user-agent"];
-    console.log(`[sso-login] Captured ${present.length} auth header(s) from ${req.url().split("/").slice(-2).join("/")}`);
+  const isApiRequest = (url) => /\/WebServices\/.+\.asmx\//i.test(url) || /\/(Home|MyWork|Library|Common)\//i.test(url);
+
+  // Track request URLs by ID via the standard event, then read the FINAL (post-network-service) headers
+  // from Network.requestWillBeSentExtraInfo via CDP — Chromium adds some headers after Puppeteer's
+  // 'request' event fires, so request.headers() alone misses them.
+  const requestUrls = new Map();
+  const cdp = await page.target().createCDPSession();
+  await cdp.send("Network.enable");
+  cdp.on("Network.requestWillBeSent", (e) => {
+    if (e.request?.method === "POST" && isApiRequest(e.request.url)) {
+      requestUrls.set(e.requestId, e.request.url);
+    }
+  });
+  // Track API responses so we can confirm the browser's calls are actually authenticated.
+  cdp.on("Network.responseReceived", (e) => {
+    const url = requestUrls.get(e.requestId);
+    if (!url) return;
+    const status = e.response?.status;
+    const jsonerror = e.response?.headers?.jsonerror || e.response?.headers?.JsonError;
+    if (status && (jsonerror || status >= 400)) {
+      console.log(`[sso-login][debug] Browser API call FAILED: ${status} jsonerror=${jsonerror} ${new URL(url).pathname}`);
+    } else if (status) {
+      console.log(`[sso-login][debug] Browser API call OK: ${status} ${new URL(url).pathname}`);
+    }
+  });
+
+  let dumpedOnce = false;
+  cdp.on("Network.requestWillBeSentExtraInfo", (e) => {
+    const url = requestUrls.get(e.requestId);
+    if (!url) return;
+    const h = Object.fromEntries(Object.entries(e.headers).map(([k, v]) => [k.toLowerCase(), v]));
+    if (!dumpedOnce) {
+      dumpedOnce = true;
+      console.log(`[sso-login][debug] First API request headers (${url}):`);
+      for (const [k, v] of Object.entries(h).sort()) {
+        const display = k === "cookie" ? `(${v.length} chars: ${v.slice(0, 80)}...)` : v.slice(0, 120);
+        console.log(`  ${k}: ${display}`);
+      }
+    }
+    for (const k of CAPTURED_HEADER_NAMES) {
+      if (h[k] && !capturedHeaders[CANONICAL[k]]) {
+        capturedHeaders[CANONICAL[k]] = h[k];
+        console.log(`[sso-login] Captured ${CANONICAL[k]} from ${new URL(url).pathname.split("/").slice(-3).join("/")}`);
+      }
+    }
+    if (h["user-agent"] && !capturedUserAgent) capturedUserAgent = h["user-agent"];
   });
 
   console.log(`[sso-login] Opening ${startUrl}`);
@@ -62,13 +97,17 @@ try {
   const tenantHost = await waitForTenantLanding(page, timeoutMs);
   console.log(`[sso-login] Landed on tenant: ${tenantHost}`);
 
-  // Wait for the page's first WebServices POST to fire so we can capture its headers.
-  const headerDeadline = Date.now() + 15000;
-  while (!capturedHeaders && Date.now() < headerDeadline) {
+  // Wait until we've captured all three headers or hit the deadline.
+  const headerDeadline = Date.now() + 20000;
+  while (Date.now() < headerDeadline) {
+    if (CAPTURED_HEADER_NAMES.every((k) => capturedHeaders[CANONICAL[k]])) break;
     await new Promise((r) => setTimeout(r, 250));
   }
-  if (!capturedHeaders) {
-    console.warn(`[sso-login] No /WebServices/ POST observed within 15s — proceeding without custom headers.`);
+  const missing = CAPTURED_HEADER_NAMES.filter((k) => !capturedHeaders[CANONICAL[k]]);
+  if (missing.length) {
+    console.warn(`[sso-login] Missing headers after 20s: ${missing.map((k) => CANONICAL[k]).join(", ")}`);
+  } else {
+    console.log(`[sso-login] All 3 auth headers captured`);
   }
 
   const cookies = await page.cookies(`https://${tenantHost}/`);
