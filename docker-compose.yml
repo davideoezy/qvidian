@@ -1,0 +1,31 @@
+services:
+  qvidian-shim:
+    build: ./qvidian-shim
+    container_name: qvidian-shim
+    env_file:
+      - ./qvidian-shim/.env
+    environment:
+      - PORT=${SHIM_PORT:-3010}
+    ports:
+      - "${SHIM_PORT:-3010}:${SHIM_PORT:-3010}"
+    networks: [appnet]
+    command: ["node", "/app/src/index.js"]
+      
+  qvidian-mcp:
+    build: ./qvidian-mcp
+    container_name: qvidian-mcp
+    depends_on:
+      - qvidian-shim
+    environment:
+      - PORT=${MCP_PORT:-3020}
+      - QVIDIAN_SHIM_BASE=http://qvidian-shim:${SHIM_PORT:-3010}
+      - QVIDIAN_BASE_URL=${QVIDIAN_BASE_URL}     # <—
+      - QVIDIAN_API_KEY=${QVIDIAN_API_KEY}
+    ports:
+      - "${MCP_PORT:-3020}:${MCP_PORT:-3020}"
+    networks: [appnet]
+    command: ["node", "/app/src/server.js"] 
+
+networks:
+  appnet:
+    driver: bridge
