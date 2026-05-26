@@ -8,3 +8,6 @@ yarn-error.log*
 dist/
 coverage/
 *.tgz
+*.har
+*.docm
+*.zip
