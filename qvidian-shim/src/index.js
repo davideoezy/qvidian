@@ -456,6 +456,33 @@ app.post("/session/credentials", async (req, res) => {
   }
 });
 
+app.post("/session/import", async (req, res) => {
+  try {
+    const baseUrl = req.body.baseUrl || process.env.QVIDIAN_BASE_URL;
+    if (!baseUrl) return res.status(400).json({ error: "Missing baseUrl" });
+
+    let cookieHeader = req.body.cookie;
+    if (!cookieHeader && Array.isArray(req.body.cookies)) {
+      cookieHeader = req.body.cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    }
+    if (!cookieHeader) return res.status(400).json({ error: "Missing cookie or cookies" });
+
+    const sessionId = createSessionId();
+    sessionStore.set(sessionId, { baseUrl: normalizeBaseUrl(baseUrl), cookie: cookieHeader });
+
+    let validation = null;
+    try {
+      validation = await validateSession(sessionId);
+    } catch (err) {
+      validation = { error: err.message };
+    }
+
+    res.json({ sessionId, validation: validation && { status: validation.status, ok: validation.ok, data: validation.data } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/session/call", async (req, res) => {
   try {
     const sessionId = req.body.sessionId;

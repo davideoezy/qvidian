@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "sso:login": "node scripts/sso-login.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -13,5 +14,8 @@
     "morgan": "^1.10.0",
     "node-cache": "^5.1.2",
     "soap": "^1.0.1"
+  },
+  "devDependencies": {
+    "puppeteer": "^23.0.0"
   }
 }

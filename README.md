@@ -42,6 +42,37 @@ cd ../qvidian-mcp && npm start
 - `qvidian-shim` exposes REST endpoints such as `/session/login`, `/session/credentials`, and `/session/call`.
 - `qvidian-mcp` exposes MCP tools like `qvidian.session.login`, `qvidian.session.login.credentials`, and `qvidian.session.invoke`.
 
+## SSO login helper (Puppeteer)
+
+For SSO-only Qvidian tenants where the API key path is unavailable, `qvidian-shim/scripts/sso-login.js` drives a real browser locally to capture the `QvidianAuthenticationToken` and posts it to the shim's `/session/login` endpoint. The shim itself stays Chromium-free (Puppeteer is a `devDependency`).
+
+Setup on your laptop (one-time):
+
+```bash
+cd qvidian-shim
+npm install   # pulls puppeteer + Chromium (~300MB, dev-only)
+```
+
+Run (with the SSH tunnel to the remote shim already open on `localhost:3010`):
+
+```bash
+npm run sso:login
+```
+
+On first run a visible Chromium window opens — sign in via Microsoft / MFA. Auth cookies are saved under `qvidian-shim/.auth/puppeteer-profile/` (gitignored). Subsequent runs reuse the saved profile and complete silently.
+
+The script waits for the SSO flow to land you on your tenant host, then captures the `qvidian.com` cookies from Puppeteer's browser context and POSTs them to the shim's `/session/import` endpoint. (The shim then uses those cookies for `/session/call`, etc.)
+
+Flags / env overrides:
+
+- `--shim http://localhost:3010` (or `SHIM_URL`) — where to post the captured token
+- `--url https://qpalogin.qvidian.com/` (or `QVIDIAN_ENTRY_URL`) — SSO entry point
+- `--baseUrl https://qpa-p1.qvidian.com/qpa_20_1_0000_0039` (or `QVIDIAN_BASE_URL`) — tenant URL the shim should bind the session to
+- `--headless true` — force headless (only works once cookies are warm)
+- `--profile /path/to/profile` (or `SSO_PROFILE_DIR`) — override profile location
+
+The script prints the `sessionId`; use it against `/session/call`, etc.
+
 ## Notes
 
 - `.env` files are ignored by Git.
