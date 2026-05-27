@@ -2,7 +2,8 @@
 import puppeteer from "puppeteer";
 import path from "path";
 import { fileURLToPath } from "url";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync } from "fs";
+import { execSync } from "child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,8 +144,27 @@ try {
   const sessionFile = path.resolve(__dirname, "../.auth/session-id");
   writeFileSync(sessionFile, result.sessionId);
   console.log(`[sso-login] Wrote sessionId to ${sessionFile}`);
-  console.log(`[sso-login] To use with MCP, restart ONLY the MCP container (preserves shim's session store):`);
-  console.log(`  export QVIDIAN_SESSION_ID=${result.sessionId} && docker compose up -d --no-deps --force-recreate qvidian-mcp`);
+
+  const composeFile = path.resolve(__dirname, "../../docker-compose.yml");
+  const skipRestart = args["no-restart"] === true || process.env.SSO_SKIP_MCP_RESTART;
+  if (skipRestart) {
+    console.log(`[sso-login] (--no-restart) Skipping MCP restart.`);
+    console.log(`  To apply: export QVIDIAN_SESSION_ID=${result.sessionId} && docker compose up -d --no-deps --force-recreate qvidian-mcp`);
+  } else if (!existsSync(composeFile)) {
+    console.log(`[sso-login] No docker-compose.yml at ${composeFile}; skipping MCP restart.`);
+  } else {
+    try {
+      console.log(`[sso-login] Refreshing qvidian-mcp with new sessionId...`);
+      execSync(`docker compose -f "${composeFile}" up -d --no-deps --force-recreate qvidian-mcp`, {
+        env: { ...process.env, QVIDIAN_SESSION_ID: result.sessionId },
+        stdio: ["ignore", "inherit", "inherit"]
+      });
+      console.log(`[sso-login] MCP is now running with the new sessionId.`);
+    } catch (err) {
+      console.warn(`[sso-login] Could not auto-restart MCP: ${err.message}`);
+      console.warn(`  Run manually: export QVIDIAN_SESSION_ID=${result.sessionId} && docker compose up -d --no-deps --force-recreate qvidian-mcp`);
+    }
+  }
 
   console.log(JSON.stringify({ sessionId: result.sessionId }, null, 2));
 } finally {
