@@ -2,7 +2,7 @@
 import puppeteer from "puppeteer";
 import path from "path";
 import { fileURLToPath } from "url";
-import { mkdirSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,6 +139,13 @@ try {
 
   console.log(`[sso-login] Session established: ${result.sessionId}`);
   console.log(`[sso-login] Validation: status=${result.validation?.status} ok=${result.validation?.ok}`);
+
+  const sessionFile = path.resolve(__dirname, "../.auth/session-id");
+  writeFileSync(sessionFile, result.sessionId);
+  console.log(`[sso-login] Wrote sessionId to ${sessionFile}`);
+  console.log(`[sso-login] To use with MCP, restart ONLY the MCP container (preserves shim's session store):`);
+  console.log(`  export QVIDIAN_SESSION_ID=${result.sessionId} && docker compose up -d --no-deps --force-recreate qvidian-mcp`);
+
   console.log(JSON.stringify({ sessionId: result.sessionId }, null, 2));
 } finally {
   await browser.close();

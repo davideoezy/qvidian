@@ -21,6 +21,7 @@ services:
       QVIDIAN_SHIM_BASE: "http://qvidian-shim:${SHIM_PORT:-3010}"
       QVIDIAN_BASE_URL: "${QVIDIAN_BASE_URL}"
       QVIDIAN_API_KEY: "${QVIDIAN_API_KEY}"
+      QVIDIAN_SESSION_ID: "${QVIDIAN_SESSION_ID:-}"
     ports:
       - "${MCP_PORT:-3020}:${MCP_PORT:-3020}"
     networks: [appnet]
