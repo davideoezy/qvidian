@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import soap from "soap";
 import path from "path";
 import readline from "readline";
+import zlib from "zlib";
 
 dotenv.config();
 const app = express();
@@ -490,6 +491,207 @@ app.post("/session/import", async (req, res) => {
     }
 
     res.json({ sessionId, validation: validation && { status: validation.status, ok: validation.ok, data: validation.data } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+function buildSessionHeaders(session) {
+  const headers = {
+    "Content-Type": "application/json; charset=UTF-8",
+    "Accept": "application/json, text/plain, */*",
+    "Origin": new URL(session.baseUrl).origin,
+    "Referer": `${session.baseUrl}/`
+  };
+  if (session.cookie) headers.Cookie = session.cookie;
+  if (session.userAgent) headers["User-Agent"] = session.userAgent;
+  if (session.customHeaders) Object.assign(headers, session.customHeaders);
+  return headers;
+}
+
+async function callSessionPath(session, pathOrUrl, { method = "POST", body } = {}) {
+  const url = pathOrUrl.startsWith("http")
+    ? pathOrUrl
+    : `${session.baseUrl}${pathOrUrl.startsWith("/") ? "" : "/"}${pathOrUrl}`;
+  const headers = buildSessionHeaders(session);
+  const bodyStr = method === "GET" ? undefined : JSON.stringify(body ?? {});
+  const response = await fetch(url, { method, headers, body: bodyStr, redirect: "manual" });
+  const setCookie = response.headers.get("set-cookie");
+  if (setCookie) session.cookie = mergeCookieStrings(session.cookie, setCookie);
+  return response;
+}
+
+function stripHtml(html) {
+  return html
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+app.post("/library/search", async (req, res) => {
+  try {
+    const session = getSession(req.body.sessionId);
+    const query = req.body.query;
+    if (!query) return res.status(400).json({ error: "Missing query" });
+    const pageSize = Number(req.body.pageSize ?? 10);
+    const pageIndex = Number(req.body.pageIndex ?? 0);
+
+    const reqBody = {
+      librarySearchRequest: {
+        searchRequestUniqueID: Date.now(),
+        searchResultsCacheID: -1,
+        searchSettingsID: -1,
+        searchSettingsRevision: -1,
+        systemSearchType: 0,
+        searchTermsCriteria: {
+          terms: query,
+          useInflectional: true,
+          defaultBehavior: 1,
+          foundInFields: [1, 2, 6, 5, 10],
+          languageIDs: ["-1"],
+          useSuggestedSearch: true,
+          useAlternativeSearchTermsParsing: false
+        },
+        cmSelectFields: [],
+        searchDescription: query,
+        resetResultsCache: true,
+        updateSortOrder: false,
+        resultsAsList: false,
+        searchCriteria: {
+          loadData: true,
+          pageSize,
+          pageIndex,
+          sortField: req.body.sortField || "Rank",
+          sortDesc: req.body.sortDesc ?? true,
+          quickSearch: query,
+          quickSearchFields: [],
+          loadRequiredData: true,
+          requiredFields: ["ContentID", "LibraryFolderID", "ContentFileExt"],
+          requiredPageSize: pageSize,
+          searchFields: ["ContentID", "Title", "ContentText", "LibraryFolderPath", "Revision", "ContentIconImage", "Rank"],
+          compressData: false,
+          compressRequiredData: false,
+          filtersAND: []
+        },
+        searchTitle: query
+      },
+      genAILibrarySearchParams: {
+        UseAIAssist: false, UseTone: false, UseRules: false, RulesText: "",
+        MaxResultsPerAIGenerate: -1, Mode: 12, RequestOrigin: 2
+      }
+    };
+
+    const response = await callSessionPath(session, "/Library/LoadSimplifiedLibraryResults", { body: reqBody });
+    const text = await response.text();
+    let data; try { data = JSON.parse(text); } catch { data = text; }
+    if (!response.ok || data?.hasError) {
+      return res.status(response.status).json({ error: "Search failed", status: response.status, data });
+    }
+
+    let results = [];
+    const ro = data?.resultObject;
+    if (ro?.contentData) {
+      const buf = Buffer.from(ro.contentData, "base64");
+      const decompressed = ro.contentDataCompressed ? zlib.gunzipSync(buf).toString("utf-8") : buf.toString("utf-8");
+      results = JSON.parse(decompressed);
+    }
+
+    res.json({
+      totalCount: ro?.totalCount ?? 0,
+      pageIndex: ro?.pageIndex ?? 0,
+      pageSize,
+      results: results.map((r) => ({
+        contentID: r.ContentID,
+        revision: r.Revision,
+        title: r.Title,
+        folderPath: r.LibraryFolderPath,
+        snippet: r.ContentText,
+        ext: r.ContentIconImage,
+        rank: r.Rank
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/library/content/:id", async (req, res) => {
+  try {
+    const session = getSession(req.body.sessionId);
+    const contentID = Number(req.params.id);
+    const revision = Number(req.body.revision ?? 1);
+    const format = req.body.format || "html";
+
+    const reqBody = {
+      ContentInfo: [{ ContentID: contentID, Revision: revision }],
+      ForDownload: false,
+      AsText: false,
+      AsHTML: true,
+      LeaveMergeCodes: false,
+      LoadData: false,
+      LoadFile: true,
+      LoadFeedback: false,
+      AuditHTMLView: true
+    };
+
+    const response = await callSessionPath(session, "/Project/RetrieveContent", { body: reqBody });
+    const text = await response.text();
+    let data; try { data = JSON.parse(text); } catch { data = text; }
+    if (!response.ok || data?.hasError) {
+      return res.status(response.status).json({ error: "Retrieve failed", status: response.status, data });
+    }
+    const item = data?.resultObject?.Contents?.[0];
+    if (!item) return res.status(404).json({ error: "No content returned" });
+
+    let html = item.FileString || "";
+    // Qvidian double-encodes: FileString comes back as a JSON-stringified string starting with `"`.
+    if (typeof html === "string" && html.startsWith('"')) {
+      try { html = JSON.parse(html); } catch {}
+    }
+    const body = format === "text" ? stripHtml(html) : html;
+
+    res.json({
+      contentID: item.ContentID,
+      revision: item.Revision,
+      fileName: item.FileName,
+      fileExt: item.FileExt,
+      format,
+      body
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/library/download/:id", async (req, res) => {
+  try {
+    const session = getSession(req.body.sessionId);
+    const contentID = Number(req.params.id);
+    const revision = req.body.revision ?? -1;
+    const url = `${session.baseUrl}/Common/Download.aspx?contentID=${contentID}&Revision=${revision}&ProcessMC=1`;
+    const headers = buildSessionHeaders(session);
+    delete headers["Content-Type"];
+    delete headers["Accept"];
+    const response = await fetch(url, { method: "GET", headers, redirect: "manual" });
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({ error: "Download failed", status: response.status, body: errText.slice(0, 500) });
+    }
+    const contentType = response.headers.get("content-type") || "application/octet-stream";
+    const dispo = response.headers.get("content-disposition");
+    res.setHeader("Content-Type", contentType);
+    if (dispo) res.setHeader("Content-Disposition", dispo);
+    const buf = Buffer.from(await response.arrayBuffer());
+    res.send(buf);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
