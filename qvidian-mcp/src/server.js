@@ -16,6 +16,9 @@ function resolveSessionId(passed) {
   return sid;
 }
 
+// Streamable HTTP is stateless: we build a fresh McpServer + transport per request
+// (McpServer instances can only be connected to one transport at a time).
+function buildServer() {
 const server = new McpServer({
   name: "qvidian-bridge",
   version: "0.2.1",
@@ -384,22 +387,41 @@ server.registerTool(
   }
 );
 
+return server;
+}
+
 // --- HTTP Streamable transport endpoint (/mcp) ---
 
 const app = express();
 app.use(express.json());
 
-// One endpoint that supports Streamable HTTP (POST) and SSE (GET) via the SDK transport
-app.all("/mcp", async (req, res) => {
+app.post("/mcp", async (req, res) => {
+  const server = buildServer();
   const transport = new StreamableHTTPServerTransport({
-    // Optional: send JSON when not streaming
+    sessionIdGenerator: undefined, // stateless: each request stands alone
     enableJsonResponse: true
   });
+  res.on("close", () => {
+    transport.close();
+    server.close().catch(() => {});
+  });
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: null });
+    }
+  }
+});
 
-  res.on("close", () => transport.close());
-
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+// Stateless mode doesn't keep an SSE channel; reject GETs explicitly so clients fall back.
+app.get("/mcp", (_req, res) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: { code: -32000, message: "Method not allowed; this server is stateless POST-only." },
+    id: null
+  });
 });
 
 app.listen(PORT, () => {
