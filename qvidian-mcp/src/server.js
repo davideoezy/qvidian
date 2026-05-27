@@ -27,7 +27,7 @@ const server = new McpServer({
 
 // qvidian.authenticate — inputs OPTIONAL now
 server.registerTool(
-  "qvidian.authenticate",
+  "qvidian_authenticate",
   {
     title: "Qvidian Authenticate",
     description: "Authenticate and discover service URLs",
@@ -57,7 +57,7 @@ server.registerTool(
 
 // (optional) a zero-input variant that ALWAYS uses env
 server.registerTool(
-  "qvidian.authenticate.env",
+  "qvidian_authenticate_env",
   {
     title: "Qvidian Authenticate (env)",
     description: "Authenticate using QVIDIAN_BASE_URL and QVIDIAN_API_KEY from environment",
@@ -79,7 +79,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.session.login",
+  "qvidian_session_login",
   {
     title: "Qvidian Session Login",
     description: "Create a Qvidian session by exchanging a browser login token for a session cookie",
@@ -101,7 +101,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.session.login.credentials",
+  "qvidian_session_login_credentials",
   {
     title: "Qvidian Credentials Session Login",
     description: "Log in with Qvidian credentials and automatically capture the browser auth token",
@@ -125,7 +125,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.session.invoke",
+  "qvidian_session_invoke",
   {
     title: "Qvidian Session Invoke",
     description: "Invoke a Qvidian WebServices JSON method using an authenticated session",
@@ -150,7 +150,7 @@ server.registerTool(
 
 // qvidian.search
 server.registerTool(
-  "qvidian.search",
+  "qvidian_search",
   {
     title: "Qvidian Search",
     description: "Search the Qvidian Library by keyword and optional filters",
@@ -182,7 +182,7 @@ server.registerTool(
 
 // qvidian.getContent
 server.registerTool(
-  "qvidian.getContent",
+  "qvidian_getContent",
   {
     title: "Qvidian Get Content",
     description: "Get details for a content item by ID",
@@ -202,7 +202,7 @@ server.registerTool(
 
 // qvidian.savedSearch.list
 server.registerTool(
-  "qvidian.savedSearch.list",
+  "qvidian_savedSearch_list",
   {
     title: "Qvidian Saved Searches",
     description: "List saved searches",
@@ -220,7 +220,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.hasPermissions",
+  "qvidian_hasPermissions",
   {
     title: "Qvidian Has Permissions",
     description: "Check whether the current authenticated token has a permission or user-level access",
@@ -241,7 +241,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.docTypeList",
+  "qvidian_docTypeList",
   {
     title: "Qvidian Document Type List",
     description: "List available Qvidian document types",
@@ -256,7 +256,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.templateList",
+  "qvidian_templateList",
   {
     title: "Qvidian Template List",
     description: "List templates for a Qvidian document type",
@@ -277,7 +277,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.dropDownItemsGetList",
+  "qvidian_dropDownItemsGetList",
   {
     title: "Qvidian Dropdown Items",
     description: "Retrieve dropdown/merge code values from Qvidian",
@@ -303,7 +303,7 @@ server.registerTool(
 // --- SSO-session library tools (search / read / download) ---
 
 server.registerTool(
-  "qvidian.library.search",
+  "qvidian_library_search",
   {
     title: "Qvidian Library Search",
     description: "Search the Qvidian content library by keyword. Returns a list of matching documents with contentID, title, folder path, and a short snippet.",
@@ -327,7 +327,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.library.read",
+  "qvidian_library_read",
   {
     title: "Qvidian Library Read Document",
     description: "Fetch the body of a Qvidian library document by contentID. Returns clean plain text by default (suitable for synthesis) or raw HTML.",
@@ -353,7 +353,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "qvidian.library.download",
+  "qvidian_library_download",
   {
     title: "Qvidian Library Download (metadata only)",
     description: "Returns metadata about a Qvidian document binary download (filename, ext, size). Use qvidian.library.read for the text content to synthesize. Direct binary download is exposed at the shim's POST /library/download/:id endpoint.",

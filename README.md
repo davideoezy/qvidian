@@ -85,13 +85,13 @@ curl -X POST http://localhost:3010/session/raw \
 
 The MCP bridge speaks Streamable HTTP at `http://localhost:3020/mcp`. The library-oriented tools:
 
-- `qvidian.library.search` — `{query, pageSize?, pageIndex?, sessionId?}`
-- `qvidian.library.read` — `{contentID, revision?, format?, sessionId?}` (text by default — ready for an LLM to ingest)
-- `qvidian.library.download` — `{contentID, revision?, sessionId?}` → metadata only (binaries can't be returned over MCP; the response includes the shim URL to fetch directly)
+- `qvidian_library_search` — `{query, pageSize?, pageIndex?, sessionId?}`
+- `qvidian_library_read` — `{contentID, revision?, format?, sessionId?}` (text by default — ready for an LLM to ingest)
+- `qvidian_library_download` — `{contentID, revision?, sessionId?}` → metadata only (binaries can't be returned over MCP; the response includes the shim URL to fetch directly)
 
 `sessionId` is optional on all of them — when `QVIDIAN_SESSION_ID` is in the MCP container's env (set automatically by `sso-login`), the tools use that as the default.
 
-There are also legacy tools (`qvidian.authenticate`, `qvidian.search`, `qvidian.getContent`, etc.) that go through the SOAP path. They don't work on this tenant — keep using the `library.*` tools.
+There are also legacy tools (`qvidian_authenticate`, `qvidian_search`, `qvidian_getContent`, etc.) that go through the SOAP path. They don't work on this tenant — keep using the `library_*` tools. Tool names use underscores (not periods) because Claude Desktop's frontend validator rejects dots.
 
 To connect Claude Desktop (or any MCP client), point it at `http://localhost:3020/mcp` as a remote MCP server.
 
