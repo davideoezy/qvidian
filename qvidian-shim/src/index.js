@@ -270,9 +270,25 @@ function createSessionId() {
 
 let defaultSsoEmail = process.env.QVIDIAN_SSO_EMAIL || null;
 
+// Qvidian times sessions out server-side; the in-memory store has no idea, so we
+// flag entries older than this and tell the caller to re-authenticate. Override
+// with QVIDIAN_SESSION_TTL_MS (0 disables the age check).
+const SESSION_TTL_MS = process.env.QVIDIAN_SESSION_TTL_MS !== undefined
+  ? Number(process.env.QVIDIAN_SESSION_TTL_MS)
+  : 8 * 60 * 60 * 1000;
+
+function storeSession(sessionId, data) {
+  sessionStore.set(sessionId, { ...data, createdAt: Date.now() });
+  return sessionId;
+}
+
 function getSession(sessionId) {
   const session = sessionStore.get(sessionId);
   if (!session) throw new Error('Session not found');
+  if (SESSION_TTL_MS > 0 && session.createdAt && Date.now() - session.createdAt > SESSION_TTL_MS) {
+    const ageMin = Math.round((Date.now() - session.createdAt) / 60000);
+    throw new Error(`Session expired (${ageMin} min old); re-run sso:login to refresh it`);
+  }
   return session;
 }
 
@@ -303,6 +319,16 @@ async function callJsonWebMethodWithSession(sessionId, serviceName, methodName, 
   return { status: response.status, ok: response.ok, headers: Object.fromEntries(response.headers.entries()), data };
 }
 
+function isAuthFailure(result) {
+  // Qvidian signals an unauthenticated request in two ways:
+  //  - MVC routes 302-redirect to Login.aspx
+  //  - .asmx web methods return 200 with a `jsonerror: true` header and empty body
+  if (!result.ok) return true;
+  if (result.status >= 300 && result.status < 400) return true;
+  if (String(result.headers?.jsonerror).toLowerCase() === "true") return true;
+  return false;
+}
+
 async function validateSession(sessionId) {
   const payload = {
     offset: -600,
@@ -310,8 +336,8 @@ async function validateSession(sessionId) {
     dstArray: []
   };
   const result = await callJsonWebMethodWithSession(sessionId, 'Common', 'SaveClientTimezoneInfo', payload);
-  if (!result.ok) {
-    throw new Error(`Session validation failed: ${result.status}`);
+  if (isAuthFailure(result)) {
+    throw new Error(`Session validation failed: status=${result.status} jsonerror=${result.headers?.jsonerror ?? "n/a"} (session is not authenticated; re-run sso:login)`);
   }
   return result;
 }
@@ -400,8 +426,7 @@ app.post("/session/login", async (req, res) => {
 
     if (!response) throw new Error("Failed to establish session");
 
-    const sessionId = createSessionId();
-    sessionStore.set(sessionId, { baseUrl: normalizedBaseUrl, cookie: cookieHeader || '' });
+    const sessionId = storeSession(createSessionId(), { baseUrl: normalizedBaseUrl, cookie: cookieHeader || '' });
 
     const validation = await validateSession(sessionId);
 
@@ -443,12 +468,10 @@ app.post("/session/credentials", async (req, res) => {
         loginResult.cookieHeader
       );
       sessionCookie = mergeCookieStrings(loginResult.cookieHeader, tokenCookieHeader);
-      sessionId = createSessionId();
-      sessionStore.set(sessionId, { baseUrl: normalizedBaseUrl, cookie: sessionCookie });
+      sessionId = storeSession(createSessionId(), { baseUrl: normalizedBaseUrl, cookie: sessionCookie });
     } else {
       sessionCookie = loginResult.cookieHeader;
-      sessionId = createSessionId();
-      sessionStore.set(sessionId, { baseUrl: normalizedBaseUrl, cookie: sessionCookie });
+      sessionId = storeSession(createSessionId(), { baseUrl: normalizedBaseUrl, cookie: sessionCookie });
     }
 
     const validation = await validateSession(sessionId);
@@ -475,8 +498,7 @@ app.post("/session/import", async (req, res) => {
     }
     if (!cookieHeader) return res.status(400).json({ error: "Missing cookie or cookies" });
 
-    const sessionId = createSessionId();
-    sessionStore.set(sessionId, {
+    const sessionId = storeSession(createSessionId(), {
       baseUrl: normalizeBaseUrl(baseUrl),
       cookie: cookieHeader,
       customHeaders: req.body.headers || {},
@@ -593,6 +615,12 @@ app.post("/library/search", async (req, res) => {
     const response = await callSessionPath(session, "/Library/LoadSimplifiedLibraryResults", { body: reqBody });
     const text = await response.text();
     let data; try { data = JSON.parse(text); } catch { data = text; }
+    // A 302 to Login.aspx (or a jsonerror header) means the Qvidian session has expired.
+    const redirectedToLogin = response.status >= 300 && response.status < 400 &&
+      /Login\.aspx/i.test(response.headers.get("location") || text || "");
+    if (redirectedToLogin || String(response.headers.get("jsonerror")).toLowerCase() === "true") {
+      return res.status(401).json({ error: "Session expired; re-run sso:login to refresh the Qvidian session", status: response.status });
+    }
     if (!response.ok || data?.hasError) {
       return res.status(response.status).json({ error: "Search failed", status: response.status, data });
     }
