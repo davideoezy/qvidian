@@ -1,6 +1,6 @@
 services:
   qvidian-shim:
-    image: davideoezy/qvidian-shim:1.0
+    image: davideoezy/qvidian-shim:1.1
     build:
       context: ./qvidian-shim
 # platforms omitted: multi-arch needs buildx bake, not `docker compose build`
@@ -18,7 +18,7 @@ services:
     command: ["node", "/app/src/index.js"]
       
   qvidian-mcp:
-    image: davideoezy/qvidian-mcp:1.0
+    image: davideoezy/qvidian-mcp:1.1
     build:
       context: ./qvidian-mcp
 # platforms omitted: multi-arch needs buildx bake, not `docker compose build`
