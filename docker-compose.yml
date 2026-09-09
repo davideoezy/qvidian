@@ -3,9 +3,10 @@ services:
     image: davideoezy/qvidian-shim:1.0
     build:
       context: ./qvidian-shim
-      platforms:
-        - linux/amd64
-        - linux/arm64
+# platforms omitted: multi-arch needs buildx bake, not `docker compose build`
+#      platforms:
+#        - linux/amd64
+#        - linux/arm64
     container_name: qvidian-shim
     env_file:
       - ./qvidian-shim/.env
@@ -20,9 +21,10 @@ services:
     image: davideoezy/qvidian-mcp:1.0
     build:
       context: ./qvidian-mcp
-      platforms:
-        - linux/amd64
-        - linux/arm64
+# platforms omitted: multi-arch needs buildx bake, not `docker compose build`
+#      platforms:
+#        - linux/amd64
+#        - linux/arm64
     container_name: qvidian-mcp
     depends_on:
       - qvidian-shim

@@ -330,13 +330,25 @@ function isAuthFailure(result) {
 }
 
 async function validateSession(sessionId) {
-  const payload = {
-    offset: -600,
-    timezoneName: "Australian Eastern Standard Time",
-    dstArray: []
+  // Common/SaveClientTimezoneInfo is called during page bootstrap and does NOT
+  // require authentication: it returns 200 for anonymous callers, so it can never
+  // detect an expired session and this check always passed. Use a Library route
+  // that genuinely requires auth (unauthenticated callers get a Login.aspx
+  // redirect or a jsonerror response).
+  const session = getSession(sessionId);
+  const response = await callSessionPath(session, "/Library/GetLibraryTreeStructure", { body: {} });
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  const result = {
+    status: response.status,
+    ok: response.ok,
+    headers: Object.fromEntries(response.headers.entries()),
+    data
   };
-  const result = await callJsonWebMethodWithSession(sessionId, 'Common', 'SaveClientTimezoneInfo', payload);
-  if (isAuthFailure(result)) {
+  const redirectedToLogin = response.status >= 300 && response.status < 400 &&
+    /Login\.aspx/i.test(response.headers.get("location") || text || "");
+  if (redirectedToLogin || isAuthFailure(result)) {
     throw new Error(`Session validation failed: status=${result.status} jsonerror=${result.headers?.jsonerror ?? "n/a"} (session is not authenticated; re-run sso:login)`);
   }
   return result;
@@ -567,6 +579,16 @@ app.post("/library/search", async (req, res) => {
     const pageSize = Number(req.body.pageSize ?? 10);
     const pageIndex = Number(req.body.pageIndex ?? 0);
 
+    // searchTermsCriteria.defaultBehavior selects the matching engine. Captured
+    // from the UI: 4 = Semantic (the "semantic search" toggle in library search
+    // settings), 1 = legacy keyword matching. Semantic ranks by similarity and
+    // handles paraphrased questions; legacy is term-frequency only. Note this is
+    // NOT genAILibrarySearchParams.UseAIAssist, which the UI leaves false for both.
+    const semantic = req.body.semantic ?? true;
+    const searchDescription = semantic
+      ? `${query}; Semantic; Found in Content Title/Content/Learned Terms/Keywords`
+      : query;
+
     const reqBody = {
       librarySearchRequest: {
         searchRequestUniqueID: Date.now(),
@@ -577,14 +599,14 @@ app.post("/library/search", async (req, res) => {
         searchTermsCriteria: {
           terms: query,
           useInflectional: true,
-          defaultBehavior: 1,
+          defaultBehavior: req.body.defaultBehavior ?? (semantic ? 4 : 1),
           foundInFields: [1, 2, 6, 5, 10],
           languageIDs: ["-1"],
           useSuggestedSearch: true,
           useAlternativeSearchTermsParsing: false
         },
         cmSelectFields: [],
-        searchDescription: query,
+        searchDescription,
         resetResultsCache: true,
         updateSortOrder: false,
         resultsAsList: false,
@@ -604,13 +626,24 @@ app.post("/library/search", async (req, res) => {
           compressRequiredData: false,
           filtersAND: []
         },
-        searchTitle: query
+        searchTitle: searchDescription
       },
       genAILibrarySearchParams: {
-        UseAIAssist: false, UseTone: false, UseRules: false, RulesText: "",
-        MaxResultsPerAIGenerate: -1, Mode: 12, RequestOrigin: 2
+        UseAIAssist: req.body.useAIAssist ?? false,
+        UseTone: false, UseRules: false, RulesText: "",
+        MaxResultsPerAIGenerate: -1,
+        Mode: req.body.mode ?? 12,
+        RequestOrigin: 2,
+        // Escape hatch for probing semantic-search flags without a code change.
+        ...(req.body.genAI || {})
       }
     };
+
+    // Allow overriding the lexical term-matching options too, so semantic vs
+    // keyword behaviour can be compared directly.
+    if (req.body.searchTerms) {
+      Object.assign(reqBody.librarySearchRequest.searchTermsCriteria, req.body.searchTerms);
+    }
 
     const response = await callSessionPath(session, "/Library/LoadSimplifiedLibraryResults", { body: reqBody });
     const text = await response.text();

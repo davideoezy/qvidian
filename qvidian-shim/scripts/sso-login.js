@@ -98,15 +98,38 @@ try {
   const tenantHost = await waitForTenantLanding(page, timeoutMs);
   console.log(`[sso-login] Landed on tenant: ${tenantHost}`);
 
+  // Resolve the base URL before navigating away from the landing page, since
+  // derivedBaseUrl() reads the current page URL to find the qpa_* build segment.
+  const tenantBaseUrl = baseUrlOverride || (await derivedBaseUrl(page, tenantHost));
+  console.log(`[sso-login] Using baseUrl: ${tenantBaseUrl}`);
+
   // Wait until we've captured all three headers or hit the deadline.
-  const headerDeadline = Date.now() + 20000;
+  // Landing on Home is not enough: qpaPageInstanceID is only sent by page-scoped
+  // requests, so passively waiting there always times out on that one header, and
+  // WebServices .asmx calls then fail auth with `jsonerror: true`. Actively visit
+  // candidate pages until all three headers have been seen.
+  const headerDeadline = Date.now() + 30000;
+  const nudgePaths = ["/Library", "/MyWork", "/Home"];
+  let nudgeIndex = 0;
+  let lastNudgeAt = 0;
   while (Date.now() < headerDeadline) {
     if (CAPTURED_HEADER_NAMES.every((k) => capturedHeaders[CANONICAL[k]])) break;
+    if (nudgeIndex < nudgePaths.length && Date.now() - lastNudgeAt > 6000) {
+      const target = `${tenantBaseUrl}${nudgePaths[nudgeIndex++]}`;
+      console.log(`[sso-login] Nudging ${target} to trigger page-scoped headers`);
+      try {
+        await page.goto(target, { waitUntil: "domcontentloaded" });
+      } catch (err) {
+        console.warn(`[sso-login] Nudge failed for ${target}: ${err.message}`);
+      }
+      lastNudgeAt = Date.now();
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   const missing = CAPTURED_HEADER_NAMES.filter((k) => !capturedHeaders[CANONICAL[k]]);
   if (missing.length) {
-    console.warn(`[sso-login] Missing headers after 20s: ${missing.map((k) => CANONICAL[k]).join(", ")}`);
+    console.warn(`[sso-login] Missing headers after 30s: ${missing.map((k) => CANONICAL[k]).join(", ")}`);
+    console.warn(`[sso-login] WebServices .asmx calls will likely fail auth; Library calls should still work.`);
   } else {
     console.log(`[sso-login] All 3 auth headers captured`);
   }
@@ -117,9 +140,6 @@ try {
     throw new Error(`No Qvidian cookies found for ${tenantHost}`);
   }
   console.log(`[sso-login] Captured ${tenantCookies.length} cookie(s) for *.qvidian.com`);
-
-  const tenantBaseUrl = baseUrlOverride || (await derivedBaseUrl(page, tenantHost));
-  console.log(`[sso-login] Using baseUrl: ${tenantBaseUrl}`);
 
   console.log(`[sso-login] Posting cookies + headers to ${shimUrl}/session/import`);
   const response = await fetch(`${shimUrl}/session/import`, {

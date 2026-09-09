@@ -51,7 +51,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`auth failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -74,7 +74,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`auth failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -96,7 +96,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`session login failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -120,7 +120,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`credentials session login failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -144,7 +144,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`session invoke failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -174,7 +174,7 @@ server.registerTool(
     if (!r.ok) throw new Error(`search failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
     return {
-      content: [{ type: "json", data }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       structuredContent: data
     };
   }
@@ -194,7 +194,7 @@ server.registerTool(
     if (!r.ok) throw new Error(`getContent failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
     return {
-      content: [{ type: "json", data }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       structuredContent: data
     };
   }
@@ -213,7 +213,7 @@ server.registerTool(
     if (!r.ok) throw new Error(`savedSearch.list failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
     return {
-      content: [{ type: "json", data }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       structuredContent: data
     };
   }
@@ -236,7 +236,7 @@ server.registerTool(
     const r = await fetch(url.toString());
     if (!r.ok) throw new Error(`hasPermissions failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -251,7 +251,7 @@ server.registerTool(
     const r = await fetch(`${SHIM_BASE}/common/doctype-list`);
     if (!r.ok) throw new Error(`docTypeList failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -272,7 +272,7 @@ server.registerTool(
     const r = await fetch(url.toString());
     if (!r.ok) throw new Error(`templateList failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -296,7 +296,7 @@ server.registerTool(
     });
     if (!r.ok) throw new Error(`dropDownItemsGetList failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
-    return { content: [{ type: "json", data }], structuredContent: data };
+    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }], structuredContent: data };
   }
 );
 
@@ -311,14 +311,17 @@ server.registerTool(
       query: z.string().min(1).describe("Search terms"),
       pageSize: z.number().int().min(1).max(50).optional().describe("Results per page (default 10)"),
       pageIndex: z.number().int().min(0).optional().describe("Zero-based page index (default 0)"),
-      sessionId: z.string().optional().describe("Qvidian sessionId from sso-login (optional if QVIDIAN_SESSION_ID env is set)")
+      sessionId: z.string().optional().describe("Qvidian sessionId from sso-login (optional if QVIDIAN_SESSION_ID env is set)"),
+      semantic: z.boolean().optional().describe("true (default) uses Qvidian's semantic search, which ranks by meaning and handles paraphrased questions. false uses legacy keyword matching."),
+      defaultBehavior: z.number().int().optional().describe("Raw searchTermsCriteria.defaultBehavior override (4 = semantic, 1 = legacy). Overrides `semantic`."),
+      searchTerms: z.record(z.any()).optional().describe("Raw overrides merged into searchTermsCriteria, e.g. { useInflectional: false }")
     }
   },
-  async ({ query, pageSize, pageIndex, sessionId }) => {
+  async ({ query, pageSize, pageIndex, sessionId, semantic, defaultBehavior, searchTerms }) => {
     const r = await fetch(`${SHIM_BASE}/library/search`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: resolveSessionId(sessionId), query, pageSize, pageIndex })
+      body: JSON.stringify({ sessionId: resolveSessionId(sessionId), query, pageSize, pageIndex, semantic, defaultBehavior, searchTerms })
     });
     if (!r.ok) throw new Error(`library search failed: ${r.status} ${await r.text()}`);
     const data = await r.json();
